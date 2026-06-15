@@ -28,20 +28,12 @@ static int lcore_hello (void*) {
     return 0;
 }
 
-// for detailed info
-static int lcore_info (void*) {
-    
-    std::printf ("[worker] core: %u  socket: %u\n",
-                rte_lcore_id(), rte_socket_id()
-                );
 
-    return 0;
-}
 
 
 int main (int argc, char** argv) {
 
-    // init EAL (Environment Abstraction Layer)
+    // 1. init EAL (Environment Abstraction Layer)
     int ret = rte_eal_init (argc, argv);
     if (ret < 0) {
         // rte_panic ("Cannot init EAL\n");
@@ -51,15 +43,11 @@ int main (int argc, char** argv) {
 
 
     // functions go inside main() - only declarations in global scope
-    // print hello from each logical core
-    unsigned lcore_id;
-    // RTE_LCORE_FOREACH_WORKER (lcore_id) {
-    //
-    //     std::printf ("Hello from core %u\n", lcore_id);
-    // }
-    
+
+    // 2. print hello from each logical core
     // all worker cores execute concurrently
     // and launched asynchronously
+    unsigned lcore_id;
     RTE_LCORE_FOREACH_WORKER (lcore_id) {
 
         rte_eal_remote_launch (lcore_hello, nullptr, lcore_id);
@@ -68,13 +56,14 @@ int main (int argc, char** argv) {
     lcore_hello (nullptr);
 
 
-    // after launching workers wait
+    // 3. after launching workers wait
     // otherwise main() exits without workers launching
     rte_eal_mp_wait_lcore();
 
 
-    // cleanup
+    // 4. cleanup
     rte_eal_cleanup();
+
 
     return EXIT_SUCCESS;
 }
