@@ -15,6 +15,7 @@
 //      * consecutive allocations are placed at a gap of 2368 bytes
 
 
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -27,6 +28,7 @@
 
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
+
 
 
 int main (int argc, char** argv) {
@@ -42,12 +44,12 @@ int main (int argc, char** argv) {
 
     rte_mempool* pool = 
         rte_pktmbuf_pool_create (
-                "MBUF_POOL",
-                NUM_MBUFS,
-                CACHE_SIZE,
-                0,
-                RTE_MBUF_DEFAULT_BUF_SIZE,
-                rte_socket_id()
+                "zerok_pool",                   // pool name
+                NUM_MBUFS,                      // no. of mbufs
+                CACHE_SIZE,                     // local cache size of each lcore
+                0,                              // private data size
+                RTE_MBUF_DEFAULT_BUF_SIZE,      // data buffer size
+                rte_socket_id()                 // socket id
             );
 
     if (!pool) rte_exit (EXIT_FAILURE, "mempool creation failed.\n");
@@ -64,7 +66,7 @@ int main (int argc, char** argv) {
 
 
     // 4. print
-    std::printf ("\npool: %p  mbuf: %p\n", (void*)pool, (void*)pkt);
+    std::printf ("\npool: %p  mbuf: %p\n", static_cast<void*>(pool), static_cast<void*>(pkt));
 
     std::printf ("available: %u\n", rte_mempool_avail_count(pool));
 
@@ -76,14 +78,21 @@ int main (int argc, char** argv) {
     auto* pkt2 = rte_pktmbuf_alloc (pool);
     if (!pkt2) rte_exit (EXIT_FAILURE, "mbuf allocation failed.\n");
 
-    std::printf ("pool: %p  mbuf: %p\n", (void*)pool, (void*)pkt2);
+    std::printf ("pool: %p  mbuf: %p\n", static_cast<void*>(pool), static_cast<void*>(pkt2));
+
 
     std::printf ("available: %u\n", rte_mempool_avail_count(pool));
 
 
     // size check
+    std::printf ("\n** Size check **\n");
     std::printf ("size of mbuf: %zu\n", sizeof(rte_mbuf));
-    std::printf ("buf len: %u\n", pkt->buf_len);
+    std::printf ("buf_len: %u\n", pkt->buf_len);
+    std::printf ("data_off: %u\n", pkt->data_off);
+
+    char* data = rte_pktmbuf_mtod (pkt, char*);
+    std::printf ("mbuf: %p\n", pkt);
+    std::printf ("data: %p\n", data);
     // size + buf_len + alignment + padding = 2368 bytes
 
 
