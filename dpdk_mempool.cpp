@@ -13,6 +13,9 @@
 //      * same address o/p for both mbuf1 and mbuf2
 //      * pre-allocated memory at env startup - mem address of pool remains the same
 //      * consecutive allocations are placed at a gap of 2368 bytes
+//
+// Note: mtod: read/write existing data/pkt
+//       append: create a pkt then write into it
 
 
 
@@ -88,12 +91,21 @@ int main (int argc, char** argv) {
     std::printf ("\n** Size check **\n");
     std::printf ("size of mbuf: %zu\n", sizeof(rte_mbuf));
     std::printf ("buf_len: %u\n", pkt->buf_len);
+    std::printf ("pkt_len: %u\n", pkt->pkt_len);
     std::printf ("data_off: %u\n", pkt->data_off);
 
+    // rte_pktmbuf_mtod : gives ptr (casted to char*) to start of the pkt
     char* data = rte_pktmbuf_mtod (pkt, char*);
     std::printf ("mbuf: %p\n", pkt);
     std::printf ("data: %p\n", data);
     // size + buf_len + alignment + padding = 2368 bytes
+
+    // create pkt of size 64 bytes
+    rte_pktmbuf_append (pkt, 64);
+    std::printf ("buf_len: %u\n", pkt->buf_len);
+    std::printf ("pkt_len: %u\n", pkt->pkt_len);
+    std::printf ("data_off: %u\n", pkt->data_off);
+
 
 
     // free mbufs
