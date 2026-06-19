@@ -77,6 +77,7 @@ int main (int argc, char** argv) {
 
     // tick mbuf
     // append n bytes before reading/mtod
+    // this updates the meta data in mbuf
     Tick tick = { .seq = 100, .bid = 100.05, .ask = 101.05 };
     void* dst = rte_pktmbuf_append (pkt, sizeof(Tick));
     __builtin_memcpy (dst, &tick, sizeof(Tick));
