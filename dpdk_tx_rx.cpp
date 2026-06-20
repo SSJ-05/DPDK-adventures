@@ -156,7 +156,7 @@ int main (int argc, char** argv) {
 
     // append
     void* dst = rte_pktmbuf_append (pkt, sizeof(Tick));
-    __builtin_memcpy (dst, &tick, sizeof(Tick));    // or use rte_memcpy ?
+    __builtin_memcpy (dst, &tick, sizeof(Tick));   
 
 
     // create array - coz DPDK processe pkts in batches
