@@ -32,6 +32,7 @@
  * RX queue : NIC puts packets here (producer), CPU processes them (consumer) -> CPU receives
  * NIC doesnt store packets. It stores references/pointers/descriptors to mbufs.
  * TX/RX are descriptor rings allocated during queue setup
+ * DPDK == batch processing via tx_burst
  * */
 
 
@@ -156,11 +157,12 @@ int main (int argc, char** argv) {
 
     // append
     void* dst = rte_pktmbuf_append (pkt, sizeof(Tick));
-    __builtin_memcpy (dst, &tick, sizeof(Tick));   
+    __builtin_memcpy (dst, &tick, sizeof(Tick));    // or use rte_memcpy ?
 
 
     // create array - coz DPDK processe pkts in batches
-    rte_mbuf* tx_pkts [1];
+    constexpr int NUM_PKTS  { 1 };
+    rte_mbuf* tx_pkts [NUM_PKTS];
     tx_pkts [0] = pkt;
 
     // transmit/send pkts in bursts
@@ -169,9 +171,9 @@ int main (int argc, char** argv) {
     std::uint16_t sent = 
         rte_eth_tx_burst (
             port_id,
-            0,
-            tx_pkts,
-            1
+            0,              // queue id == 0, only available queue
+            tx_pkts,        // array of mbuf ptrs
+            NUM_PKTS        // how many entries from tx_pkts shud be processed
         );
     if (sent == 1) std::printf ("\n**tx_burst success**\n" "sent %u packets\n\n", sent);
     else if (sent == 0) {
