@@ -9,7 +9,18 @@
  *      allocate and append mbufs with ticks
  *      transmit mbufs in bursts via tx_burst
  *      check mempool consumption
+ *
+ * observations:
+ *      output showed available = 3073, in use = 1023
+ *      this strongly suggests PMD is holding onto to pkts
+ *      rather than immediately returning them to mempool
+ *
+ *      dpdk documentation stated that some NICs (RTL_8169 in this case)
+ *      retain mbufs in TX ring
+ *      and only release them in batches after thresholds are crossed or
+ *      descriptors are needed again
  * */
+
 
 #include <cstdlib>
 #include <cstdio>
@@ -237,21 +248,17 @@ int main (int argc, char** argv) {
     rte_mempool* tx_pool = 
         create_mempool (cfg::BUFFER_SIZE, cfg::CACHE_SIZE, "tx_pool");
 
-    std::printf ("available mempool: %u\n"
-                 "in use mempool   : %u\n",
+    std::printf ("\navailable mempool: %u\n"
+                 "in use mempool   : %u\n\n",
                  rte_mempool_avail_count (tx_pool),
                  rte_mempool_in_use_count (tx_pool));
 
     
-    int it {};
-    while (it < cfg::BURST_SIZE) {
+    for (auto i {cfg::BURST_SIZE}; i-- > 0;) 
         send_burst (tx_pool);
-        ++it;
-    }
-    // std::printf ("Packets sent: %d\n", sent_pkts);
 
-    std::printf ("available mempool: %u\n"
-                 "in use mempool   : %u\n",
+    std::printf ("\navailable mempool: %u\n"
+                 "in use mempool   : %u\n\n",
                  rte_mempool_avail_count (tx_pool),
                  rte_mempool_in_use_count (tx_pool));
 
