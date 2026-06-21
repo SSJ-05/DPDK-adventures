@@ -1,6 +1,16 @@
 // refactor tx_burst v3 // 21.06.26// ZeroK
 // implemented basic packet transmit pipeline in dpdk
 
+/* workflow:
+ *      init EAL
+ *      check hardware capabilities
+ *      configure port and queues
+ *      create mempools (tx and rx)
+ *      allocate and append mbufs with ticks
+ *      transmit mbufs in bursts via tx_burst
+ *      check mempool consumption
+ * */
+
 #include <cstdlib>
 #include <cstdio>
 #include <cstdint>
