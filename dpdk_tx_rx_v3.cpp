@@ -11,7 +11,7 @@
  *      check mempool consumption
 
  * observations:
- *      output showed available = 3073, in use = 1023
+ *      output showed available = 7169, in use = 1023
  *      this strongly suggests PMD is holding onto to pkts
  *      rather than immediately returning them to mempool
  *
@@ -40,14 +40,14 @@ static_assert (sizeof(Tick) == 64, "WARNING: Tick should be 64 bytes.\n");
 namespace cfg {
 
     constexpr std::uint16_t  DESC_SIZE    { 1024 };
-    constexpr std::uint16_t  BUFFER_SIZE  { 4096 };
+    constexpr std::uint16_t  BUFFER_SIZE  { 8192 };
     constexpr std::uint16_t  CACHE_SIZE   { 256 };
     constexpr std::uint16_t  BURST_SIZE   { 32 };
     constexpr std::uint16_t  PORT_ID      { 0 };
     constexpr std::uint16_t  RX_Q         { 1 };
     constexpr std::uint16_t  TX_Q         { 1 };
 
-    static_assert (BUFFER_SIZE >= DESC_SIZE, "INCREASE THE BUFFER SIZE.\n");
+    static_assert (BUFFER_SIZE >= 2 * DESC_SIZE, "INCREASE THE BUFFER SIZE.\n");
 }
 
 
