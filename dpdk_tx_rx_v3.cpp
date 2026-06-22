@@ -9,7 +9,7 @@
  *      allocate and append mbufs with ticks
  *      transmit mbufs in bursts via tx_burst
  *      check mempool consumption
- *
+
  * observations:
  *      output showed available = 3073, in use = 1023
  *      this strongly suggests PMD is holding onto to pkts
@@ -34,7 +34,7 @@
 #include <rte_ethdev.h>
 
 #include "tick.hpp"
-static_assert (sizeof(Tick) == 64, "Tick should be 64 bytes.\n");
+static_assert (sizeof(Tick) == 64, "WARNING: Tick should be 64 bytes.\n");
 
 
 namespace cfg {
@@ -47,12 +47,13 @@ namespace cfg {
     constexpr std::uint16_t  RX_Q         { 1 };
     constexpr std::uint16_t  TX_Q         { 1 };
 
+    static_assert (BUFFER_SIZE >= DESC_SIZE, "INCREASE THE BUFFER SIZE.\n");
 }
 
 
 Tick tick_generate () {
 
-    static std::uint64_t _seq = 0;
+    static std::uint64_t _seq {};
 
     return Tick {
         .seq = ++_seq,
@@ -65,6 +66,8 @@ Tick tick_generate () {
     };
 }
 
+
+// EAL init
 int eal_init (int argc, char** argv) {
 
     int ret;
@@ -74,6 +77,8 @@ int eal_init (int argc, char** argv) {
     return ret;
 }
 
+
+// check H/W
 void discover_port () {
     
     unsigned ports = rte_eth_dev_count_avail();
@@ -82,7 +87,7 @@ void discover_port () {
 
     if (ports != 1)
         std::printf ("\nPorts available: %u, "  "We use port %d\n", 
-                ports, cfg::PORT_ID);
+                        ports, cfg::PORT_ID);
 
 
     rte_eth_dev_info info;
@@ -98,6 +103,7 @@ void discover_port () {
 }
 
 
+// create mempool
 rte_mempool* create_mempool (std::uint16_t buf_size,
                             std::uint16_t cache_size, 
                             const char* name) {
@@ -117,6 +123,7 @@ rte_mempool* create_mempool (std::uint16_t buf_size,
 }
 
 
+// create RX Queue
 void create_rx_q (std::uint16_t desc_sz) {
     
     auto* rx_pool = 
@@ -134,6 +141,8 @@ void create_rx_q (std::uint16_t desc_sz) {
     if (ret < 0) rte_exit (EXIT_FAILURE, "RX QUEUE CREATION FAILED\n");
 }
 
+
+// create TX Queue
 void create_tx_q (std::uint16_t desc_sz) {
     
     int ret = 
@@ -147,51 +156,56 @@ void create_tx_q (std::uint16_t desc_sz) {
     if (ret < 0) rte_exit (EXIT_FAILURE, "TX QUEUE CREATION FAILED\n");
 }
 
+
+// configure port
 void port_config () {
     
     rte_eth_conf port_conf {};
     int ret = 
         rte_eth_dev_configure (
             cfg::PORT_ID,
-            cfg::RX_Q,    // rx queues
-            cfg::TX_Q,    // tx queues
+            cfg::RX_Q,              // no. of rx queues
+            cfg::TX_Q,              // no. of tx queues
             &port_conf
         );
     if (ret < 0) rte_exit (EXIT_FAILURE, "PORT CONFIGURE FAILED\n");
 }
 
 
+// dev start port
 void start_port () {
 
     int ret = rte_eth_dev_start (cfg::PORT_ID);
     if (ret < 0) rte_exit (EXIT_FAILURE, "ETH DEV START FAILED\n");
-
 }
 
+
+// key func - send pkts via tx_burst
 std::uint16_t send_burst (rte_mempool* tx_pool) {
 
     rte_mbuf* tx_pkts [cfg::BURST_SIZE];
 
-    // generate 32 ticks
-    // alloc and append 32 mbufs
-    // memcpy those ticks into mbufs
-    // then place the mbufs ref in tx_pkts array
-    // all in one loop
+    // alloc and append an mbuf
+    // generate a tick
+    // memcpy the tick into mbuf
+    // then place the mbuf ref in tx_pkts array
+    // do this for 32 (BURST_SIZE) iterations
     for (auto i {cfg::BURST_SIZE}; i-- > 0;) 
     {
-        Tick tick = tick_generate();
-
         auto* pkt = rte_pktmbuf_alloc (tx_pool);
         if (!pkt) rte_exit (EXIT_FAILURE, "MBUF ALLOC FAILED\n");
 
         void* dst = rte_pktmbuf_append (pkt, sizeof(Tick));
         if (!dst) rte_exit (EXIT_FAILURE, "RTE PKTMBUF APPEND FAILED\n");
+
+        Tick tick = tick_generate();
         __builtin_memcpy (dst, &tick, sizeof(tick));
 
         tx_pkts [i] = pkt;
     }
 
 
+    // tx_burst - send pkts to NIC
     std::uint16_t sent = 
         rte_eth_tx_burst (
             cfg::PORT_ID,
@@ -201,7 +215,7 @@ std::uint16_t send_burst (rte_mempool* tx_pool) {
         );
 
 
-    // if sent < BURST_SIZE)
+    // if sent < BURST_SIZE) -> free the dropped mbufs
     for (std::uint16_t i {sent}; i < cfg::BURST_SIZE; ++i)
         rte_pktmbuf_free (tx_pkts[i]);
 
@@ -212,10 +226,10 @@ std::uint16_t send_burst (rte_mempool* tx_pool) {
                                     sent, cfg::BURST_SIZE);
 
     return sent;
-
 }
 
 
+// stop dev, close port, cleanup EAL
 void shutdown () {
     
     int ret = rte_eth_dev_stop (cfg::PORT_ID);
@@ -226,6 +240,16 @@ void shutdown () {
 
     ret = rte_eal_cleanup();
     if (ret < 0) rte_exit (EXIT_FAILURE, "RTE EAL CLEANUP FAILED\n");
+}
+
+
+// check pool availability
+void pool_stats (rte_mempool* pool) {
+
+    std::printf ("\navailable mempool: %u\n"
+                 "in use mempool   : %u\n\n",
+                 rte_mempool_avail_count (pool),
+                 rte_mempool_in_use_count (pool));
 }
 
 
@@ -242,25 +266,22 @@ int main (int argc, char** argv) {
     create_rx_q (cfg::DESC_SIZE);
     create_tx_q (cfg::DESC_SIZE);
 
+    /**************************************************************************************/
+
     start_port ();
 
     // tx_pool lives here - pass it to send_tick 
     rte_mempool* tx_pool = 
         create_mempool (cfg::BUFFER_SIZE, cfg::CACHE_SIZE, "tx_pool");
 
-    std::printf ("\navailable mempool: %u\n"
-                 "in use mempool   : %u\n\n",
-                 rte_mempool_avail_count (tx_pool),
-                 rte_mempool_in_use_count (tx_pool));
-
+    pool_stats (tx_pool);
     
     for (auto i {cfg::BURST_SIZE}; i-- > 0;) 
         send_burst (tx_pool);
 
-    std::printf ("\navailable mempool: %u\n"
-                 "in use mempool   : %u\n\n",
-                 rte_mempool_avail_count (tx_pool),
-                 rte_mempool_in_use_count (tx_pool));
+    pool_stats (tx_pool);
+
+    /**************************************************************************************/
 
     // rte_mempool_free (tx_pool);
     shutdown ();
