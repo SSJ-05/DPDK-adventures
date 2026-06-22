@@ -1,5 +1,18 @@
 // dpdk_port cpp file// 22.06.26// ZeroK
 
+/* this file contains
+ * config constants
+ * EAL init
+ * H/W check
+ * port configure
+ * mempool init
+ * rx/tx queue setup
+ * start port
+ * shutdown (stop port, close port, eal cleanup)
+ * pool stats printer
+ * */
+
+
 #include "dpdk_port.hpp"
 
 #include <rte_eal.h>
@@ -9,21 +22,25 @@
 #include <rte_ether.h>
 #include <rte_ethdev.h>
 
+#include <cstdio>
+
 
 namespace cfg {
 
-    constexpr std::uint16_t  DESC_SIZE    { 1 << 10 };  // 1024
-    constexpr std::uint16_t  BUFFER_SIZE  { 1 << 13 };  // 8192
+    constexpr std::uint16_t  TX_DESC      { 1 << 10 };  // 1024
+    constexpr std::uint16_t  RX_DESC      { 1 << 10 };  // 1024
+    constexpr std::uint16_t  NUM_MBUFS    { 1 << 13 };  // 8192
     constexpr std::uint16_t  CACHE_SIZE   { 1 << 8 };   // 256
     constexpr std::uint16_t  RX_Q         { 1 };
     constexpr std::uint16_t  TX_Q         { 1 };
+    constexpr std::uint16_t  PORT_ID      { 0 };
 
-    static_assert (BUFFER_SIZE >= 2 * DESC_SIZE, "INCREASE THE BUFFER SIZE.\n");
+    static_assert (NUM_MBUFS >= 2 * TX_DESC, "INCREASE THE BUFFER SIZE.\n");
 }
 
 
 // EAL init
-int eal_init (int argc, char** argv) {
+static int eal_init (int argc, char** argv) {
 
     int ret;
     if ((ret = rte_eal_init (argc, argv)) < 0)
@@ -34,7 +51,7 @@ int eal_init (int argc, char** argv) {
 
 
 // check H/W
-void discover_port () {
+static std::uint16_t discover_port () {
     
     unsigned ports = rte_eth_dev_count_avail();
     
@@ -55,13 +72,15 @@ void discover_port () {
                     "\tdriver_name: %s\n",
                     ports, info.max_tx_queues, info.max_rx_queues, info.driver_name
                 );
+
+    return cfg::PORT_ID;
 }
 
 
 // create mempool
-rte_mempool* create_mempool (std::uint16_t buf_size,
-                            std::uint16_t cache_size, 
-                            const char* name) {
+static rte_mempool* create_mempool (std::uint16_t buf_size,
+                                    std::uint16_t cache_size, 
+                                    const char* name) {
     
     auto* pool = 
         rte_pktmbuf_pool_create (
@@ -79,10 +98,10 @@ rte_mempool* create_mempool (std::uint16_t buf_size,
 
 
 // create RX Queue
-void create_rx_q (std::uint16_t desc_sz) {
+static rte_mempool* create_rx_pool (std::uint16_t desc_sz) {
     
     auto* rx_pool = 
-        create_mempool (cfg::BUFFER_SIZE, cfg::CACHE_SIZE, "rx_pool");
+        create_mempool (cfg::NUM_MBUFS, cfg::CACHE_SIZE, "rx_pool");
     
     int ret = 
         rte_eth_rx_queue_setup (
@@ -94,11 +113,13 @@ void create_rx_q (std::uint16_t desc_sz) {
             rx_pool
         );
     if (ret < 0) rte_exit (EXIT_FAILURE, "RX QUEUE CREATION FAILED\n");
+
+    return rx_pool;
 }
 
 
 // create TX Queue
-void create_tx_q (std::uint16_t desc_sz) {
+static void create_tx_q (std::uint16_t desc_sz) {
     
     int ret = 
         rte_eth_tx_queue_setup (
@@ -113,7 +134,7 @@ void create_tx_q (std::uint16_t desc_sz) {
 
 
 // configure port
-void port_config () {
+static void port_config () {
     
     rte_eth_conf port_conf {};
     int ret = 
@@ -127,70 +148,23 @@ void port_config () {
 }
 
 
+
 // dev start port
-void start_port () {
+static void start_port () {
 
     int ret = rte_eth_dev_start (cfg::PORT_ID);
     if (ret < 0) rte_exit (EXIT_FAILURE, "ETH DEV START FAILED\n");
 }
 
 
-// key func - send pkts via tx_burst
-std::uint16_t send_burst (rte_mempool* tx_pool) {
-
-    rte_mbuf* tx_pkts [cfg::BURST_SIZE];
-
-    // alloc and append an mbuf
-    // generate a tick
-    // memcpy the tick into mbuf
-    // then place the mbuf ref in tx_pkts array
-    // do this for 32 (BURST_SIZE) iterations
-    for (auto i {cfg::BURST_SIZE}; i-- > 0;) 
-    {
-        auto* pkt = rte_pktmbuf_alloc (tx_pool);
-        if (!pkt) rte_exit (EXIT_FAILURE, "MBUF ALLOC FAILED\n");
-
-        void* dst = rte_pktmbuf_append (pkt, sizeof(Tick));
-        if (!dst) rte_exit (EXIT_FAILURE, "RTE PKTMBUF APPEND FAILED\n");
-
-        Tick tick = tick_generate();
-        __builtin_memcpy (dst, &tick, sizeof(tick));
-
-        tx_pkts [i] = pkt;
-    }
-
-
-    // tx_burst - send pkts to NIC
-    std::uint16_t sent = 
-        rte_eth_tx_burst (
-            cfg::PORT_ID,
-            0,
-            tx_pkts,
-            cfg::BURST_SIZE
-        );
-
-
-    // if sent < BURST_SIZE) -> free the dropped mbufs
-    for (std::uint16_t i {sent}; i < cfg::BURST_SIZE; ++i)
-        rte_pktmbuf_free (tx_pkts[i]);
-
-    if (sent == 0) {
-        std::printf ("TX_BURST FAILED\n");
-    }
-    else if (sent >= 1) std::printf ("sent: %u / %u\n",
-                                    sent, cfg::BURST_SIZE);
-
-    return sent;
-}
-
 
 // stop dev, close port, cleanup EAL
-void dpdk::shutdown () {
+void dpdk::shutdown (std::uint16_t port_id) {
     
-    int ret = rte_eth_dev_stop (cfg::PORT_ID);
+    int ret = rte_eth_dev_stop (port_id);
     if (ret < 0) rte_exit (EXIT_FAILURE, "ETH DEV STOP FAILED\n");
 
-    ret = rte_eth_dev_close (cfg::PORT_ID);
+    ret = rte_eth_dev_close (port_id);
     if (ret < 0) rte_exit (EXIT_FAILURE, "ETH DEV CLOSE FAILED\n");
 
     ret = rte_eal_cleanup();
@@ -199,7 +173,7 @@ void dpdk::shutdown () {
 
 
 // check pool availability
-void pool_stats (rte_mempool* pool) {
+static void pool_stats (rte_mempool* pool) {
 
     std::printf ("\navailable mempool: %u\n"
                  "in use mempool   : %u\n\n",
@@ -208,38 +182,8 @@ void pool_stats (rte_mempool* pool) {
 }
 
 
-int main (int argc, char** argv) {
-
-    int args_consumed = eal_init (argc, argv);
-    argc -= args_consumed;
-    argv += args_consumed;
-
-    discover_port ();
-
-    port_config ();
-
-    create_rx_q (cfg::DESC_SIZE);
-    create_tx_q (cfg::DESC_SIZE);
-
-    /**************************************************************************************/
-
-    start_port ();
-
-    // tx_pool lives here - pass it to send_tick 
-    rte_mempool* tx_pool = 
-        create_mempool (cfg::BUFFER_SIZE, cfg::CACHE_SIZE, "tx_pool");
-
-    pool_stats (tx_pool);
-    
-    for (auto i {cfg::BURST_SIZE}; i-- > 0;) 
-        send_burst (tx_pool);
-
-    pool_stats (tx_pool);
-
-    /**************************************************************************************/
-
-    // rte_mempool_free (tx_pool);
-    dpdk::shutdown ();
-
-    return EXIT_SUCCESS;
-}
+// // port init
+// std::uint16_t dpdk::init (int argc, char** argv) {
+//
+//     return port_id;
+// }
